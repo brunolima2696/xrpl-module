@@ -47,5 +47,3 @@ de cotas do Vault. O comportamento de `VaultDeposit` permanece inalterado.
   pronta; o build local permanece opcional.
 - Contas, seeds e estado local excluídos do contexto Docker e ignorados pelo Git.
 
-A compilação completa e a validação dos testes do protocolo permanecem pendentes.
-Os clientes Python ainda precisam de suporte aos novos campos.
