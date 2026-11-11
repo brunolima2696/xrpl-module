@@ -1,0 +1,11 @@
+.git
+.build
+.ci-cache
+.venv
+build
+config
+.env
+.env.*
+state.json
+**/__pycache__
+**/*.log

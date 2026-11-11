@@ -46,6 +46,54 @@ public:
     // Ledger entry-specific field getters
 
     /**
+     * @brief Get sfCredentialIssuer (SoeOptional)
+     * @return The field value, or std::nullopt if not present.
+     */
+    [[nodiscard]]
+    protocol_autogen::Optional<SF_ACCOUNT::type::value_type>
+    getCredentialIssuer() const
+    {
+        if (hasCredentialIssuer())
+            return this->sle_->at(sfCredentialIssuer);
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Check if sfCredentialIssuer is present.
+     * @return True if the field is present, false otherwise.
+     */
+    [[nodiscard]]
+    bool
+    hasCredentialIssuer() const
+    {
+        return this->sle_->isFieldPresent(sfCredentialIssuer);
+    }
+
+    /**
+     * @brief Get sfCredentialType (SoeOptional)
+     * @return The field value, or std::nullopt if not present.
+     */
+    [[nodiscard]]
+    protocol_autogen::Optional<SF_VL::type::value_type>
+    getCredentialType() const
+    {
+        if (hasCredentialType())
+            return this->sle_->at(sfCredentialType);
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Check if sfCredentialType is present.
+     * @return True if the field is present, false otherwise.
+     */
+    [[nodiscard]]
+    bool
+    hasCredentialType() const
+    {
+        return this->sle_->isFieldPresent(sfCredentialType);
+    }
+
+    /**
      * @brief Get sfPreviousTxnID (SoeRequired)
      * @return The field value.
      */
@@ -619,6 +667,28 @@ public:
     /**
      * @brief Ledger entry-specific field setters
      */
+
+    /**
+     * @brief Set sfCredentialIssuer (SoeOptional)
+     * @return Reference to this builder for method chaining.
+     */
+    LoanBuilder&
+    setCredentialIssuer(std::decay_t<typename SF_ACCOUNT::type::value_type> const& value)
+    {
+        object_[sfCredentialIssuer] = value;
+        return *this;
+    }
+
+    /**
+     * @brief Set sfCredentialType (SoeOptional)
+     * @return Reference to this builder for method chaining.
+     */
+    LoanBuilder&
+    setCredentialType(std::decay_t<typename SF_VL::type::value_type> const& value)
+    {
+        object_[sfCredentialType] = value;
+        return *this;
+    }
 
     /**
      * @brief Set sfPreviousTxnID (SoeRequired)

@@ -164,6 +164,32 @@ public:
     }
 
     /**
+     * @brief Get sfBorrowerDomainID (SoeOptional)
+     * @return The field value, or std::nullopt if not present.
+     */
+    [[nodiscard]]
+    protocol_autogen::Optional<SF_UINT256::type::value_type>
+    getBorrowerDomainID() const
+    {
+        if (hasBorrowerDomainID())
+        {
+            return this->tx_->at(sfBorrowerDomainID);
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Check if sfBorrowerDomainID is present.
+     * @return True if the field is present, false otherwise.
+     */
+    [[nodiscard]]
+    bool
+    hasBorrowerDomainID() const
+    {
+        return this->tx_->isFieldPresent(sfBorrowerDomainID);
+    }
+
+    /**
      * @brief Get sfData (SoeOptional)
      * @return The field value, or std::nullopt if not present.
      */
@@ -391,6 +417,17 @@ public:
     setWithdrawalPolicy(std::decay_t<typename SF_UINT8::type::value_type> const& value)
     {
         object_[sfWithdrawalPolicy] = value;
+        return *this;
+    }
+
+    /**
+     * @brief Set sfBorrowerDomainID (SoeOptional)
+     * @return Reference to this builder for method chaining.
+     */
+    VaultCreateBuilder&
+    setBorrowerDomainID(std::decay_t<typename SF_UINT256::type::value_type> const& value)
+    {
+        object_[sfBorrowerDomainID] = value;
         return *this;
     }
 

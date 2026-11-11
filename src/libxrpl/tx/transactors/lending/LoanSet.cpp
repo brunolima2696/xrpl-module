@@ -7,6 +7,7 @@
 #include <xrpl/core/ServiceRegistry.h>
 #include <xrpl/ledger/View.h>
 #include <xrpl/ledger/helpers/AccountRootHelpers.h>
+#include <xrpl/ledger/helpers/CredentialHelpers.h>
 #include <xrpl/ledger/helpers/LendingHelpers.h>
 #include <xrpl/ledger/helpers/SponsorHelpers.h>
 #include <xrpl/ledger/helpers/TokenHelpers.h>
@@ -49,6 +50,8 @@ static_assert(kMinInvestmentPeriod >= LoanSet::kMinPaymentInterval + kLoanRedemp
 bool
 LoanSet::checkExtraFeatures(PreflightContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfVaultID) && !ctx.rules.enabled(featurePistisLending))
+        return false;
     return checkLendingProtocolDependencies(ctx.rules, ctx.tx);
 }
 
@@ -64,6 +67,9 @@ LoanSet::preflight(PreflightContext const& ctx)
     using namespace lending;
 
     auto const& tx = ctx.tx;
+
+    if (auto const vault = tx[~sfVaultID]; vault && *vault == beast::kZero)
+        return temMALFORMED;
 
     if (tx.isFieldPresent(sfSponsorFlags) && isReserveSponsored(tx))
     {
@@ -228,6 +234,60 @@ getStartDate(ReadView const& view)
     return view.header().closeTime.time_since_epoch().count();
 }
 
+namespace {
+
+// Read-only selection shared by preclaim and apply. Order is the persisted
+// AcceptedCredentials order; the signature-time state is never trusted.
+TER
+checkBorrowerCredentials(
+    ReadView const& view,
+    STTx const& tx,
+    SLE const& vault,
+    AccountID const& borrower,
+    SLE::const_pointer* selected = nullptr)
+{
+    if (!view.rules().enabled(featurePistisLending))
+        return tesSUCCESS;
+
+    auto const vaultID = tx[~sfVaultID];
+    if (vaultID && *vaultID != vault.key())
+        return tecNO_PERMISSION;
+
+    auto const domainID = vault[~sfBorrowerDomainID];
+    if (!domainID)
+        return tesSUCCESS;
+    if (!vaultID)
+        return tecNO_PERMISSION;
+
+    auto const domain = view.read(keylet::permissionedDomain(*domainID));
+    if (!domain)
+        return tecOBJECT_NOT_FOUND;
+
+    bool expired = false;
+    for (auto const& pair : domain->getFieldArray(sfAcceptedCredentials))
+    {
+        auto const issuer = pair.getAccountID(sfIssuer);
+        auto const type = pair.getFieldVL(sfCredentialType);
+        auto const credential = view.read(keylet::credential(borrower, issuer, makeSlice(type)));
+        if (!credential)
+            continue;
+        if (credentials::checkExpired(*credential, view.header().parentCloseTime))
+        {
+            expired = true;
+            continue;
+        }
+        if (credential->isFlag(lsfAccepted))
+        {
+            if (selected)
+                *selected = credential;
+            return tesSUCCESS;
+        }
+    }
+    return expired ? tecEXPIRED : tecNO_PERMISSION;
+}
+
+}  // namespace
+
 TER
 LoanSet::preclaim(PreclaimContext const& ctx)
 {
@@ -315,6 +375,10 @@ LoanSet::preclaim(PreclaimContext const& ctx)
         // Should be impossible
         return tefBAD_LEDGER;  // LCOV_EXCL_LINE
     }
+
+    if (auto const ret = checkBorrowerCredentials(ctx.view, tx, *vault, borrower);
+        !isTesSuccess(ret))
+        return ret;
 
     if (ctx.view.rules().enabled(featureLendingProtocolV1_1))
     {
@@ -451,6 +515,11 @@ LoanSet::doApply()
 
     auto const counterparty = tx[~sfCounterparty].value_or(brokerOwner);
     auto const borrower = counterparty == brokerOwner ? accountID_ : counterparty;
+    SLE::const_pointer selectedCredential;
+    if (auto const ret =
+            checkBorrowerCredentials(view, tx, *vaultSle, borrower, &selectedCredential);
+        !isTesSuccess(ret))
+        return ret;
     auto const borrowerSle = view.peek(keylet::account(borrower));
     if (!borrowerSle)
     {
@@ -668,6 +737,11 @@ LoanSet::doApply()
     loan->at(sfLoanSequence) = *loanSequenceProxy;
     loan->at(sfLoanBrokerID) = brokerID;
     loan->at(sfBorrower) = borrower;
+    if (selectedCredential)
+    {
+        loan->at(sfCredentialIssuer) = selectedCredential->at(sfIssuer);
+        loan->setFieldVL(sfCredentialType, selectedCredential->getFieldVL(sfCredentialType));
+    }
     // Set all other transaction fields directly from the transaction
     if (tx.isFlag(tfLoanOverpayment))
         loan->setFlag(lsfLoanOverpayment);

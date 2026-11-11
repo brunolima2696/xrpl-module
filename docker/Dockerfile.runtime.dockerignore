@@ -1,0 +1,6 @@
+**
+!.build/
+!.build/xrpld
+!docker/
+!docker/xrpld.cfg
+!docker/entrypoint.sh

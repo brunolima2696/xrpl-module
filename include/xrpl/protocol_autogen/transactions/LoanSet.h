@@ -59,6 +59,32 @@ public:
     }
 
     /**
+     * @brief Get sfVaultID (SoeOptional)
+     * @return The field value, or std::nullopt if not present.
+     */
+    [[nodiscard]]
+    protocol_autogen::Optional<SF_UINT256::type::value_type>
+    getVaultID() const
+    {
+        if (hasVaultID())
+        {
+            return this->tx_->at(sfVaultID);
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Check if sfVaultID is present.
+     * @return True if the field is present, false otherwise.
+     */
+    [[nodiscard]]
+    bool
+    hasVaultID() const
+    {
+        return this->tx_->isFieldPresent(sfVaultID);
+    }
+
+    /**
      * @brief Get sfData (SoeOptional)
      * @return The field value, or std::nullopt if not present.
      */
@@ -512,6 +538,17 @@ public:
     setLoanBrokerID(std::decay_t<typename SF_UINT256::type::value_type> const& value)
     {
         object_[sfLoanBrokerID] = value;
+        return *this;
+    }
+
+    /**
+     * @brief Set sfVaultID (SoeOptional)
+     * @return Reference to this builder for method chaining.
+     */
+    LoanSetBuilder&
+    setVaultID(std::decay_t<typename SF_UINT256::type::value_type> const& value)
+    {
+        object_[sfVaultID] = value;
         return *this;
     }
 

@@ -2,6 +2,9 @@
 #* text=auto
 # cspell: disable
 
+# Scripts used by the Pistis container must remain executable on Linux.
+docker/*.sh text eol=lf
+
 # Visual Studio
 *.sln       text eol=crlf
 *.vcproj    text eol=crlf

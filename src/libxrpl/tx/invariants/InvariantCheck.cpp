@@ -1161,6 +1161,9 @@ NoModifiedUnmodifiableFields::finalize(
                     kFieldChanged(before, after, sfCoverRateLiquidation);
                 break;
             case ltLOAN:
+                if (view.rules().enabled(featurePistisLending))
+                    bad = bad || kFieldChanged(before, after, sfCredentialIssuer) ||
+                        kFieldChanged(before, after, sfCredentialType);
                 bad = bad || kFieldChanged(before, after, sfSequence) ||
                     kFieldChanged(before, after, sfOwnerNode) ||
                     kFieldChanged(before, after, sfLoanBrokerNode) ||

@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1
+# Packages the executable already compiled and tested by build-pistis.sh.
+ARG XRPLD_TOOLCHAIN_IMAGE=ghcr.io/xrplf/xrpld/nix-ubuntu:sha-060957e
+FROM ${XRPLD_TOOLCHAIN_IMAGE}
+
+ARG VCS_REF=unknown
+ARG SOURCE_URL=https://github.com/brunolima2696/xrpl-module
+LABEL org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.title="PistisLending xrpld"
+
+COPY .build/xrpld /usr/local/bin/xrpld
+COPY docker/xrpld.cfg /etc/xrpld/xrpld.cfg
+COPY docker/entrypoint.sh /usr/local/bin/xrpld-entrypoint
+
+RUN sed -i 's/\r$//' /usr/local/bin/xrpld-entrypoint && \
+    chmod +x /usr/local/bin/xrpld /usr/local/bin/xrpld-entrypoint && \
+    mkdir -p /var/lib/xrpld/nudb /var/lib/xrpld/db /var/log/xrpld
+
+EXPOSE 5005
+VOLUME ["/var/lib/xrpld", "/var/log/xrpld"]
+ENTRYPOINT ["/usr/local/bin/xrpld-entrypoint"]

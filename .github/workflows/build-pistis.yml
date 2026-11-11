@@ -1,0 +1,236 @@
+name: Build Pistis
+
+# Deliberately manual. This workflow is not called by the upstream CI.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Prepare dependencies only, or build and test the image
+        type: choice
+        options:
+          - dependencies
+          - image
+        default: dependencies
+      publish:
+        description: Publish a successful image to GHCR (image stage only)
+        type: boolean
+        default: false
+      runner:
+        description: Linux x64 runner label; select a larger runner if needed
+        type: string
+        default: ubuntu-24.04
+      build_type:
+        description: Release uses less disk than Debug; caches are separate
+        type: choice
+        options:
+          - Release
+          - Debug
+        default: Release
+      build_jobs:
+        description: Number of parallel compiler processes
+        type: choice
+        options:
+          - "2"
+          - "4"
+          - "8"
+        default: "4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pistis-image-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  TOOLCHAIN_IMAGE: ghcr.io/xrplf/xrpld/nix-ubuntu:sha-060957e
+  BUILD_TYPE: ${{ inputs.build_type }}
+  BUILD_JOBS: ${{ inputs.build_jobs }}
+  TEST_SUITES: LoanSet,Vault,Feature,ServerDefinitions
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 330
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check resources before starting
+        run: |
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          docker version
+          free -h
+          df -h .
+          memory_kib=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+          free_kib=$(df -Pk . | awk 'NR == 2 {print $4}')
+          if (( memory_kib < 14 * 1024 * 1024 || free_kib < 40 * 1024 * 1024 )); then
+            echo '::error::Use a Linux x64 runner with at least 14 GiB RAM and 40 GiB free disk. These are conservative preflight thresholds, not a guarantee that the build will fit.'
+            exit 1
+          fi
+          mkdir -p .build .ci-cache/conan .ci-cache/ccache
+
+      - name: Restore Conan packages
+        id: conan-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .ci-cache/conan
+          key: pistis-conan-v1-linux-x64-${{ inputs.build_type }}-${{ hashFiles('conanfile.py', 'conan/**', 'docker/build-pistis.sh', '.github/workflows/build-pistis.yml') }}
+
+      - name: Restore compiler cache
+        if: inputs.stage == 'image'
+        id: compiler-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .ci-cache/ccache
+          key: pistis-ccache-v1-linux-x64-${{ inputs.build_type }}-${{ hashFiles('conanfile.py', 'conan/**', 'docker/build-pistis.sh', '.github/workflows/build-pistis.yml') }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            pistis-ccache-v1-linux-x64-${{ inputs.build_type }}-${{ hashFiles('conanfile.py', 'conan/**', 'docker/build-pistis.sh', '.github/workflows/build-pistis.yml') }}-
+
+      - name: Pull toolchain and record build inputs
+        run: |
+          docker pull "${TOOLCHAIN_IMAGE}"
+          docker image inspect "${TOOLCHAIN_IMAGE}" --format '{{.Id}}' >.build/pistis-toolchain-id.txt
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          Path('.build/pistis-build-info.json').write_text(json.dumps({
+              'source': os.environ['GITHUB_REPOSITORY'],
+              'commit': os.environ['GITHUB_SHA'],
+              'ref': os.environ['GITHUB_REF'],
+              'build_type': os.environ['BUILD_TYPE'],
+              'test_suites': os.environ['TEST_SUITES'],
+              'toolchain': os.environ['TOOLCHAIN_IMAGE'],
+              'toolchain_id': Path('.build/pistis-toolchain-id.txt').read_text().strip(),
+          }, indent=2) + '\n')
+          PY
+
+      - name: Install or compile dependencies
+        id: dependencies
+        run: |
+          set -o pipefail
+          docker run --rm --init --platform linux/amd64 \
+            --mount "type=bind,source=${GITHUB_WORKSPACE},target=/workspace/xrpld" \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/.ci-cache/conan,target=/root/.conan2" \
+            --workdir /workspace/xrpld \
+            --env CONAN_HOME=/root/.conan2 --env BUILD_TYPE --env BUILD_JOBS --env TEST_SUITES \
+            --entrypoint /bin/bash "${TOOLCHAIN_IMAGE}" \
+            docker/build-pistis.sh dependencies 2>&1 | tee .build/pistis-dependencies.log
+
+      # Keep installed packages, not the large temporary dependency build trees.
+      # This touches only the CI bind mount, never the local Docker cache volumes.
+      - name: Compact dependency cache
+        run: |
+          docker run --rm --platform linux/amd64 \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/.ci-cache/conan,target=/root/.conan2" \
+            --env CONAN_HOME=/root/.conan2 \
+            --entrypoint /bin/bash "${TOOLCHAIN_IMAGE}" \
+            -c 'conan cache clean "*" --source --build --download --temp'
+
+      # Save before compiling xrpld, so a compiler/test failure does not discard
+      # the completed dependencies. An interrupted dependency build is not saved.
+      - name: Save Conan packages
+        if: steps.conan-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-cache/conan
+          key: ${{ steps.conan-cache.outputs.cache-primary-key }}
+
+      - name: Compile xrpld and run tests
+        if: inputs.stage == 'image'
+        id: compile
+        run: |
+          set -o pipefail
+          docker run --rm --init --platform linux/amd64 \
+            --mount "type=bind,source=${GITHUB_WORKSPACE},target=/workspace/xrpld" \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/.ci-cache/conan,target=/root/.conan2" \
+            --mount "type=bind,source=${GITHUB_WORKSPACE}/.ci-cache/ccache,target=/ccache" \
+            --workdir /workspace/xrpld \
+            --env CONAN_HOME=/root/.conan2 --env BUILD_TYPE --env BUILD_JOBS --env TEST_SUITES \
+            --env CCACHE_DIR=/ccache --env CCACHE_MAXSIZE=2G \
+            --env CCACHE_BASEDIR=/workspace/xrpld \
+            --env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory \
+            --env GIT_CONFIG_VALUE_0=/workspace/xrpld \
+            --entrypoint /bin/bash "${TOOLCHAIN_IMAGE}" \
+            docker/build-pistis.sh image 2>&1 | tee .build/pistis-build.log
+
+      - name: Save compiler cache including completed objects on failure
+        if: ${{ !cancelled() && (steps.compile.outcome == 'success' || steps.compile.outcome == 'failure') }}
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-cache/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+
+      - name: Package tested executable
+        if: inputs.stage == 'image'
+        id: image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/xrpld"
+          echo "name=${image}" >>"${GITHUB_OUTPUT}"
+          docker build --file docker/Dockerfile.runtime \
+            --build-arg "XRPLD_TOOLCHAIN_IMAGE=${TOOLCHAIN_IMAGE}" \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --build-arg "SOURCE_URL=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "${image}:pistis-${GITHUB_SHA}" .
+          docker run --rm --network none --entrypoint /usr/local/bin/xrpld \
+            "${image}:pistis-${GITHUB_SHA}" --version
+
+      - name: Publish image to GHCR
+        if: inputs.stage == 'image' && inputs.publish
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          printf '%s' "${REGISTRY_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${IMAGE_NAME}:pistis-${GITHUB_SHA}"
+          if [[ "${GITHUB_REF}" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            docker tag "${IMAGE_NAME}:pistis-${GITHUB_SHA}" "${IMAGE_NAME}:pistis"
+            docker push "${IMAGE_NAME}:pistis"
+          fi
+          digest=$(docker image inspect "${IMAGE_NAME}:pistis-${GITHUB_SHA}" --format '{{index .RepoDigests 0}}')
+          {
+            echo '### Published image'
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Pull: docker pull ${IMAGE_NAME}:pistis-${GITHUB_SHA}"
+            echo "Pinned reference: ${digest}"
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Summary
+        if: success()
+        env:
+          BUILD_STAGE: ${{ inputs.stage }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          {
+            echo '### Pistis build'
+            echo "Stage: ${BUILD_STAGE}"
+            echo "Configuration: ${BUILD_TYPE}; parallel jobs: ${BUILD_JOBS}"
+            echo "Requested publication: ${PUBLISH} (image stage only)"
+            echo 'The workflow does not start nodes or change ledgers.'
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload build logs and metadata
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pistis-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .build/pistis-*.log
+            .build/pistis-build-info.json
+            .build/pistis-toolchain-id.txt
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

@@ -20,6 +20,7 @@ TEST(VaultTests, BuilderSettersRoundTrip)
 {
     uint256 const index{1u};
 
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const previousTxnIDValue = canonical_UINT256();
     auto const previousTxnLgrSeqValue = canonical_UINT32();
     auto const sequenceValue = canonical_UINT32();
@@ -52,6 +53,7 @@ TEST(VaultTests, BuilderSettersRoundTrip)
         withdrawalPolicyValue
     };
 
+    builder.setBorrowerDomainID(borrowerDomainIDValue);
     builder.setData(dataValue);
     builder.setAssetsTotal(assetsTotalValue);
     builder.setAssetsAvailable(assetsAvailableValue);
@@ -124,6 +126,14 @@ TEST(VaultTests, BuilderSettersRoundTrip)
         auto const& expected = withdrawalPolicyValue;
         auto const actual = entry.getWithdrawalPolicy();
         expectEqualField(expected, actual, "sfWithdrawalPolicy");
+    }
+
+    {
+        auto const& expected = borrowerDomainIDValue;
+        auto const actualOpt = entry.getBorrowerDomainID();
+        ASSERT_TRUE(actualOpt.has_value());
+        expectEqualField(expected, *actualOpt, "sfBorrowerDomainID");
+        EXPECT_TRUE(entry.hasBorrowerDomainID());
     }
 
     {
@@ -219,6 +229,7 @@ TEST(VaultTests, BuilderFromSleRoundTrip)
 {
     uint256 const index{2u};
 
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const previousTxnIDValue = canonical_UINT256();
     auto const previousTxnLgrSeqValue = canonical_UINT32();
     auto const sequenceValue = canonical_UINT32();
@@ -241,6 +252,7 @@ TEST(VaultTests, BuilderFromSleRoundTrip)
 
     auto sle = std::make_shared<SLE>(Vault::entryType, index);
 
+    sle->at(sfBorrowerDomainID) = borrowerDomainIDValue;
     sle->at(sfPreviousTxnID) = previousTxnIDValue;
     sle->at(sfPreviousTxnLgrSeq) = previousTxnLgrSeqValue;
     sle->at(sfSequence) = sequenceValue;
@@ -358,6 +370,19 @@ TEST(VaultTests, BuilderFromSleRoundTrip)
 
         expectEqualField(expected, fromSle, "sfWithdrawalPolicy");
         expectEqualField(expected, fromBuilder, "sfWithdrawalPolicy");
+    }
+
+    {
+        auto const& expected = borrowerDomainIDValue;
+
+        auto const fromSleOpt = entryFromSle.getBorrowerDomainID();
+        auto const fromBuilderOpt = entryFromBuilder.getBorrowerDomainID();
+
+        ASSERT_TRUE(fromSleOpt.has_value());
+        ASSERT_TRUE(fromBuilderOpt.has_value());
+
+        expectEqualField(expected, *fromSleOpt, "sfBorrowerDomainID");
+        expectEqualField(expected, *fromBuilderOpt, "sfBorrowerDomainID");
     }
 
     {
@@ -560,6 +585,8 @@ TEST(VaultTests, OptionalFieldsReturnNullopt)
     auto const entry = builder.build(index);
 
     // Verify optional fields are not present
+    EXPECT_FALSE(entry.hasBorrowerDomainID());
+    EXPECT_FALSE(entry.getBorrowerDomainID().has_value());
     EXPECT_FALSE(entry.hasData());
     EXPECT_FALSE(entry.getData().has_value());
     EXPECT_FALSE(entry.hasAssetsTotal());

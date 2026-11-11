@@ -30,6 +30,7 @@ TEST(TransactionsVaultSetTests, BuilderSettersRoundTrip)
 
     // Transaction-specific field values
     auto const vaultIDValue = canonical_UINT256();
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const assetsMaximumValue = canonical_NUMBER();
     auto const domainIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
@@ -42,6 +43,7 @@ TEST(TransactionsVaultSetTests, BuilderSettersRoundTrip)
     };
 
     // Set optional fields
+    builder.setBorrowerDomainID(borrowerDomainIDValue);
     builder.setAssetsMaximum(assetsMaximumValue);
     builder.setDomainID(domainIDValue);
     builder.setData(dataValue);
@@ -68,6 +70,14 @@ TEST(TransactionsVaultSetTests, BuilderSettersRoundTrip)
     }
 
     // Verify optional fields
+    {
+        auto const& expected = borrowerDomainIDValue;
+        auto const actualOpt = tx.getBorrowerDomainID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfBorrowerDomainID should be present";
+        expectEqualField(expected, *actualOpt, "sfBorrowerDomainID");
+        EXPECT_TRUE(tx.hasBorrowerDomainID());
+    }
+
     {
         auto const& expected = assetsMaximumValue;
         auto const actualOpt = tx.getAssetsMaximum();
@@ -109,6 +119,7 @@ TEST(TransactionsVaultSetTests, BuilderFromStTxRoundTrip)
 
     // Transaction-specific field values
     auto const vaultIDValue = canonical_UINT256();
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const assetsMaximumValue = canonical_NUMBER();
     auto const domainIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
@@ -121,6 +132,7 @@ TEST(TransactionsVaultSetTests, BuilderFromStTxRoundTrip)
         feeValue
     };
 
+    initialBuilder.setBorrowerDomainID(borrowerDomainIDValue);
     initialBuilder.setAssetsMaximum(assetsMaximumValue);
     initialBuilder.setDomainID(domainIDValue);
     initialBuilder.setData(dataValue);
@@ -148,6 +160,13 @@ TEST(TransactionsVaultSetTests, BuilderFromStTxRoundTrip)
     }
 
     // Verify optional fields
+    {
+        auto const& expected = borrowerDomainIDValue;
+        auto const actualOpt = rebuiltTx.getBorrowerDomainID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfBorrowerDomainID should be present";
+        expectEqualField(expected, *actualOpt, "sfBorrowerDomainID");
+    }
+
     {
         auto const& expected = assetsMaximumValue;
         auto const actualOpt = rebuiltTx.getAssetsMaximum();
@@ -226,6 +245,8 @@ TEST(TransactionsVaultSetTests, OptionalFieldsReturnNullopt)
     auto tx = builder.build(publicKey, secretKey);
 
     // Verify optional fields are not present
+    EXPECT_FALSE(tx.hasBorrowerDomainID());
+    EXPECT_FALSE(tx.getBorrowerDomainID().has_value());
     EXPECT_FALSE(tx.hasAssetsMaximum());
     EXPECT_FALSE(tx.getAssetsMaximum().has_value());
     EXPECT_FALSE(tx.hasDomainID());

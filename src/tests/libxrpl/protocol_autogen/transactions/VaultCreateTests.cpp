@@ -34,6 +34,7 @@ TEST(TransactionsVaultCreateTests, BuilderSettersRoundTrip)
     auto const mPTokenMetadataValue = canonical_VL();
     auto const domainIDValue = canonical_UINT256();
     auto const withdrawalPolicyValue = canonical_UINT8();
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
     auto const scaleValue = canonical_UINT8();
     auto const vaultKindValue = canonical_UINT8();
@@ -52,6 +53,7 @@ TEST(TransactionsVaultCreateTests, BuilderSettersRoundTrip)
     builder.setMPTokenMetadata(mPTokenMetadataValue);
     builder.setDomainID(domainIDValue);
     builder.setWithdrawalPolicy(withdrawalPolicyValue);
+    builder.setBorrowerDomainID(borrowerDomainIDValue);
     builder.setData(dataValue);
     builder.setScale(scaleValue);
     builder.setVaultKind(vaultKindValue);
@@ -110,6 +112,14 @@ TEST(TransactionsVaultCreateTests, BuilderSettersRoundTrip)
         ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfWithdrawalPolicy should be present";
         expectEqualField(expected, *actualOpt, "sfWithdrawalPolicy");
         EXPECT_TRUE(tx.hasWithdrawalPolicy());
+    }
+
+    {
+        auto const& expected = borrowerDomainIDValue;
+        auto const actualOpt = tx.getBorrowerDomainID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfBorrowerDomainID should be present";
+        expectEqualField(expected, *actualOpt, "sfBorrowerDomainID");
+        EXPECT_TRUE(tx.hasBorrowerDomainID());
     }
 
     {
@@ -173,6 +183,7 @@ TEST(TransactionsVaultCreateTests, BuilderFromStTxRoundTrip)
     auto const mPTokenMetadataValue = canonical_VL();
     auto const domainIDValue = canonical_UINT256();
     auto const withdrawalPolicyValue = canonical_UINT8();
+    auto const borrowerDomainIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
     auto const scaleValue = canonical_UINT8();
     auto const vaultKindValue = canonical_UINT8();
@@ -191,6 +202,7 @@ TEST(TransactionsVaultCreateTests, BuilderFromStTxRoundTrip)
     initialBuilder.setMPTokenMetadata(mPTokenMetadataValue);
     initialBuilder.setDomainID(domainIDValue);
     initialBuilder.setWithdrawalPolicy(withdrawalPolicyValue);
+    initialBuilder.setBorrowerDomainID(borrowerDomainIDValue);
     initialBuilder.setData(dataValue);
     initialBuilder.setScale(scaleValue);
     initialBuilder.setVaultKind(vaultKindValue);
@@ -246,6 +258,13 @@ TEST(TransactionsVaultCreateTests, BuilderFromStTxRoundTrip)
         auto const actualOpt = rebuiltTx.getWithdrawalPolicy();
         ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfWithdrawalPolicy should be present";
         expectEqualField(expected, *actualOpt, "sfWithdrawalPolicy");
+    }
+
+    {
+        auto const& expected = borrowerDomainIDValue;
+        auto const actualOpt = rebuiltTx.getBorrowerDomainID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfBorrowerDomainID should be present";
+        expectEqualField(expected, *actualOpt, "sfBorrowerDomainID");
     }
 
     {
@@ -348,6 +367,8 @@ TEST(TransactionsVaultCreateTests, OptionalFieldsReturnNullopt)
     EXPECT_FALSE(tx.getDomainID().has_value());
     EXPECT_FALSE(tx.hasWithdrawalPolicy());
     EXPECT_FALSE(tx.getWithdrawalPolicy().has_value());
+    EXPECT_FALSE(tx.hasBorrowerDomainID());
+    EXPECT_FALSE(tx.getBorrowerDomainID().has_value());
     EXPECT_FALSE(tx.hasData());
     EXPECT_FALSE(tx.getData().has_value());
     EXPECT_FALSE(tx.hasScale());

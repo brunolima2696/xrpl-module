@@ -1,0 +1,45 @@
+name: xrpl-local
+
+services:
+  xrpld:
+    image: ${XRPLD_IMAGE:-ghcr.io/brunolima2696/xrpld:pistis}
+    container_name: xrpld-local
+    ports:
+      - "127.0.0.1:5005:5005"
+    volumes:
+      - xrpld-data:/var/lib/xrpld
+      - xrpld-logs:/var/log/xrpld
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/xrpld
+        - server_info
+        - --conf=/etc/xrpld/xrpld.cfg
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  ledger-closer:
+    image: ${XRPLD_IMAGE:-ghcr.io/brunolima2696/xrpld:pistis}
+    container_name: xrpld-ledger-closer
+    depends_on:
+      xrpld:
+        condition: service_healthy
+    network_mode: "service:xrpld"
+    entrypoint:
+      - /bin/bash
+      - -lc
+    command:
+      - |
+        while true; do
+          /usr/local/bin/xrpld ledger_accept \
+            --conf=/etc/xrpld/xrpld.cfg >/dev/null || true
+          sleep 1
+        done
+    restart: unless-stopped
+
+volumes:
+  xrpld-data:
+  xrpld-logs:

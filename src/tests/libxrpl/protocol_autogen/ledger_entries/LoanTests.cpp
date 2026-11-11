@@ -20,6 +20,8 @@ TEST(LoanTests, BuilderSettersRoundTrip)
 {
     uint256 const index{1u};
 
+    auto const credentialIssuerValue = canonical_ACCOUNT();
+    auto const credentialTypeValue = canonical_VL();
     auto const previousTxnIDValue = canonical_UINT256();
     auto const previousTxnLgrSeqValue = canonical_UINT32();
     auto const ownerNodeValue = canonical_UINT64();
@@ -61,6 +63,8 @@ TEST(LoanTests, BuilderSettersRoundTrip)
         periodicPaymentValue
     };
 
+    builder.setCredentialIssuer(credentialIssuerValue);
+    builder.setCredentialType(credentialTypeValue);
     builder.setLoanOriginationFee(loanOriginationFeeValue);
     builder.setLoanServiceFee(loanServiceFeeValue);
     builder.setLatePaymentFee(latePaymentFeeValue);
@@ -146,6 +150,22 @@ TEST(LoanTests, BuilderSettersRoundTrip)
         auto const& expected = periodicPaymentValue;
         auto const actual = entry.getPeriodicPayment();
         expectEqualField(expected, actual, "sfPeriodicPayment");
+    }
+
+    {
+        auto const& expected = credentialIssuerValue;
+        auto const actualOpt = entry.getCredentialIssuer();
+        ASSERT_TRUE(actualOpt.has_value());
+        expectEqualField(expected, *actualOpt, "sfCredentialIssuer");
+        EXPECT_TRUE(entry.hasCredentialIssuer());
+    }
+
+    {
+        auto const& expected = credentialTypeValue;
+        auto const actualOpt = entry.getCredentialType();
+        ASSERT_TRUE(actualOpt.has_value());
+        expectEqualField(expected, *actualOpt, "sfCredentialType");
+        EXPECT_TRUE(entry.hasCredentialType());
     }
 
     {
@@ -297,6 +317,8 @@ TEST(LoanTests, BuilderFromSleRoundTrip)
 {
     uint256 const index{2u};
 
+    auto const credentialIssuerValue = canonical_ACCOUNT();
+    auto const credentialTypeValue = canonical_VL();
     auto const previousTxnIDValue = canonical_UINT256();
     auto const previousTxnLgrSeqValue = canonical_UINT32();
     auto const ownerNodeValue = canonical_UINT64();
@@ -327,6 +349,8 @@ TEST(LoanTests, BuilderFromSleRoundTrip)
 
     auto sle = std::make_shared<SLE>(Loan::entryType, index);
 
+    sle->at(sfCredentialIssuer) = credentialIssuerValue;
+    sle->at(sfCredentialType) = credentialTypeValue;
     sle->at(sfPreviousTxnID) = previousTxnIDValue;
     sle->at(sfPreviousTxnLgrSeq) = previousTxnLgrSeqValue;
     sle->at(sfOwnerNode) = ownerNodeValue;
@@ -462,6 +486,32 @@ TEST(LoanTests, BuilderFromSleRoundTrip)
 
         expectEqualField(expected, fromSle, "sfPeriodicPayment");
         expectEqualField(expected, fromBuilder, "sfPeriodicPayment");
+    }
+
+    {
+        auto const& expected = credentialIssuerValue;
+
+        auto const fromSleOpt = entryFromSle.getCredentialIssuer();
+        auto const fromBuilderOpt = entryFromBuilder.getCredentialIssuer();
+
+        ASSERT_TRUE(fromSleOpt.has_value());
+        ASSERT_TRUE(fromBuilderOpt.has_value());
+
+        expectEqualField(expected, *fromSleOpt, "sfCredentialIssuer");
+        expectEqualField(expected, *fromBuilderOpt, "sfCredentialIssuer");
+    }
+
+    {
+        auto const& expected = credentialTypeValue;
+
+        auto const fromSleOpt = entryFromSle.getCredentialType();
+        auto const fromBuilderOpt = entryFromBuilder.getCredentialType();
+
+        ASSERT_TRUE(fromSleOpt.has_value());
+        ASSERT_TRUE(fromBuilderOpt.has_value());
+
+        expectEqualField(expected, *fromSleOpt, "sfCredentialType");
+        expectEqualField(expected, *fromBuilderOpt, "sfCredentialType");
     }
 
     {
@@ -757,6 +807,10 @@ TEST(LoanTests, OptionalFieldsReturnNullopt)
     auto const entry = builder.build(index);
 
     // Verify optional fields are not present
+    EXPECT_FALSE(entry.hasCredentialIssuer());
+    EXPECT_FALSE(entry.getCredentialIssuer().has_value());
+    EXPECT_FALSE(entry.hasCredentialType());
+    EXPECT_FALSE(entry.getCredentialType().has_value());
     EXPECT_FALSE(entry.hasLoanOriginationFee());
     EXPECT_FALSE(entry.getLoanOriginationFee().has_value());
     EXPECT_FALSE(entry.hasLoanServiceFee());

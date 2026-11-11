@@ -109,6 +109,10 @@ protected:
         // tests that need finer loanScale to exercise rounding edge cases.
         std::optional<std::uint8_t> vaultScale =
             std::nullopt;  // NOLINT(readability-redundant-member-init)
+        std::optional<uint256> depositorDomainID =
+            std::nullopt;  // NOLINT(readability-redundant-member-init)
+        std::optional<uint256> borrowerDomainID =
+            std::nullopt;  // NOLINT(readability-redundant-member-init)
         // Vault kind axis. When ClosedEnded, createVaultAndBroker sets sfSubscriptionDate /
         // sfRedemptionDate from env.now() using the offsets below and advances the ledger clock
         // past SubscriptionDate so the vault is in the Investment phase by the time the broker is
@@ -538,6 +542,10 @@ protected:
              .redemptionDate = redemptionDate});
         if (params.vaultScale)
             tx[sfScale] = *params.vaultScale;
+        if (params.depositorDomainID)
+            tx[sfDomainID] = to_string(*params.depositorDomainID);
+        if (params.borrowerDomainID)
+            tx[sfBorrowerDomainID] = to_string(*params.borrowerDomainID);
         env(tx);
         env.close();
         BEAST_EXPECT(env.le(vaultKeylet));

@@ -2,6 +2,7 @@
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Zero.h>
+#include <xrpl/ledger/helpers/DirectoryHelpers.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/LedgerFormats.h>
@@ -20,6 +21,11 @@ namespace xrpl {
 bool
 VaultSet::checkExtraFeatures(PreflightContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfBorrowerDomainID) &&
+        (!ctx.rules.enabled(featurePistisLending) ||
+         !ctx.rules.enabled(featurePermissionedDomains) || !ctx.rules.enabled(featureCredentials)))
+        return false;
+
     return !ctx.tx.isFieldPresent(sfDomainID) || ctx.rules.enabled(featurePermissionedDomains);
 }
 
@@ -51,7 +57,7 @@ VaultSet::preflight(PreflightContext const& ctx)
     }
 
     if (!ctx.tx.isFieldPresent(sfDomainID) && !ctx.tx.isFieldPresent(sfAssetsMaximum) &&
-        !ctx.tx.isFieldPresent(sfData))
+        !ctx.tx.isFieldPresent(sfData) && !ctx.tx.isFieldPresent(sfBorrowerDomainID))
     {
         JLOG(ctx.j.debug()) << "VaultSet: nothing is being updated.";
         return temMALFORMED;
@@ -82,6 +88,28 @@ VaultSet::preclaim(PreclaimContext const& ctx)
         JLOG(ctx.j.error()) << "VaultSet: missing issuance of vault shares.";
         return tefINTERNAL;
         // LCOV_EXCL_STOP
+    }
+
+    if (auto const domain = ctx.tx[~sfBorrowerDomainID])
+    {
+        auto const current = vault->at(~sfBorrowerDomainID).value_or(uint256{});
+        if (*domain != current)
+        {
+            if (sleIssuance->at(sfOutstandingAmount) != 0)
+                return tecHAS_OBLIGATIONS;
+
+            // Loans belong to the broker's directory, not directly to the Vault.
+            // OwnerCount includes paid loans until LoanDelete removes them.
+            bool hasLoans = false;
+            forEachItem(ctx.view, vault->at(sfAccount), [&](SLE::const_ref entry) {
+                if (entry && entry->getType() == ltLOAN_BROKER && entry->at(sfOwnerCount) != 0)
+                    hasLoans = true;
+            });
+            if (hasLoans)
+                return tecHAS_OBLIGATIONS;
+        }
+        if (*domain != beast::kZero && !ctx.view.exists(keylet::permissionedDomain(*domain)))
+            return tecOBJECT_NOT_FOUND;
     }
 
     if (auto const domain = ctx.tx[~sfDomainID])
@@ -140,6 +168,14 @@ VaultSet::doApply()
     }
 
     // Update mutable flags and fields if given.
+    if (auto const domain = tx[~sfBorrowerDomainID])
+    {
+        if (*domain != beast::kZero)
+            vault->at(sfBorrowerDomainID) = *domain;
+        else if (vault->isFieldPresent(sfBorrowerDomainID))
+            vault->makeFieldAbsent(sfBorrowerDomainID);
+    }
+
     if (tx.isFieldPresent(sfData))
         vault->at(sfData) = tx[sfData];
     if (tx.isFieldPresent(sfAssetsMaximum))

@@ -38,6 +38,11 @@ namespace xrpl {
 bool
 VaultCreate::checkExtraFeatures(PreflightContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfBorrowerDomainID) &&
+        (!ctx.rules.enabled(featurePistisLending) ||
+         !ctx.rules.enabled(featurePermissionedDomains) || !ctx.rules.enabled(featureCredentials)))
+        return false;
+
     if (!ctx.rules.enabled(featureMPTokensV1))
         return false;
 
@@ -61,6 +66,9 @@ VaultCreate::getFlagsMask(PreflightContext const& ctx)
 NotTEC
 VaultCreate::preflight(PreflightContext const& ctx)
 {
+    if (auto const domain = ctx.tx[~sfBorrowerDomainID]; domain && *domain == beast::kZero)
+        return temMALFORMED;
+
     if (!validDataLength(ctx.tx[~sfData], kMaxDataPayloadLength))
         return temMALFORMED;
 
@@ -154,6 +162,10 @@ VaultCreate::preclaim(PreclaimContext const& ctx)
     }
 
     auto const sequence = ctx.tx.getSeqProxy();
+    if (auto const domain = ctx.tx[~sfBorrowerDomainID];
+        domain && !ctx.view.exists(keylet::permissionedDomain(*domain)))
+        return tecOBJECT_NOT_FOUND;
+
     if (auto const accountId = pseudoAccountAddress(ctx.view, keylet::vault(account, sequence).key);
         accountId == beast::kZero)
         return terADDRESS_COLLISION;
@@ -260,6 +272,8 @@ VaultCreate::doApply()
     if (auto value = tx[~sfAssetsMaximum])
         vault->at(sfAssetsMaximum) = *value;
     vault->at(sfShareMPTID) = mptIssuanceID;
+    if (auto const domain = tx[~sfBorrowerDomainID])
+        vault->at(sfBorrowerDomainID) = *domain;
     if (auto value = tx[~sfData])
         vault->at(sfData) = *value;
     // Required field, default to vaultStrategyFirstComeFirstServe

@@ -1,0 +1,13 @@
+# Optional local build: docker compose -f docker/compose.yaml -f docker/compose.build.yaml build
+services:
+  xrpld:
+    image: ${XRPLD_IMAGE:-xrpld-local:pistis}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-4}
+        BUILD_TYPE: ${BUILD_TYPE:-Debug}
+        TEST_SUITES: LoanSet,Vault,Feature,ServerDefinitions
+  ledger-closer:
+    image: ${XRPLD_IMAGE:-xrpld-local:pistis}

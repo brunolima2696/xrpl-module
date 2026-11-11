@@ -30,6 +30,7 @@ TEST(TransactionsLoanSetTests, BuilderSettersRoundTrip)
 
     // Transaction-specific field values
     auto const loanBrokerIDValue = canonical_UINT256();
+    auto const vaultIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
     auto const counterpartyValue = canonical_ACCOUNT();
     auto const counterpartySignatureValue = canonical_OBJECT();
@@ -56,6 +57,7 @@ TEST(TransactionsLoanSetTests, BuilderSettersRoundTrip)
     };
 
     // Set optional fields
+    builder.setVaultID(vaultIDValue);
     builder.setData(dataValue);
     builder.setCounterparty(counterpartyValue);
     builder.setCounterpartySignature(counterpartySignatureValue);
@@ -100,6 +102,14 @@ TEST(TransactionsLoanSetTests, BuilderSettersRoundTrip)
     }
 
     // Verify optional fields
+    {
+        auto const& expected = vaultIDValue;
+        auto const actualOpt = tx.getVaultID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfVaultID should be present";
+        expectEqualField(expected, *actualOpt, "sfVaultID");
+        EXPECT_TRUE(tx.hasVaultID());
+    }
+
     {
         auto const& expected = dataValue;
         auto const actualOpt = tx.getData();
@@ -237,6 +247,7 @@ TEST(TransactionsLoanSetTests, BuilderFromStTxRoundTrip)
 
     // Transaction-specific field values
     auto const loanBrokerIDValue = canonical_UINT256();
+    auto const vaultIDValue = canonical_UINT256();
     auto const dataValue = canonical_VL();
     auto const counterpartyValue = canonical_ACCOUNT();
     auto const counterpartySignatureValue = canonical_OBJECT();
@@ -263,6 +274,7 @@ TEST(TransactionsLoanSetTests, BuilderFromStTxRoundTrip)
         feeValue
     };
 
+    initialBuilder.setVaultID(vaultIDValue);
     initialBuilder.setData(dataValue);
     initialBuilder.setCounterparty(counterpartyValue);
     initialBuilder.setCounterpartySignature(counterpartySignatureValue);
@@ -308,6 +320,13 @@ TEST(TransactionsLoanSetTests, BuilderFromStTxRoundTrip)
     }
 
     // Verify optional fields
+    {
+        auto const& expected = vaultIDValue;
+        auto const actualOpt = rebuiltTx.getVaultID();
+        ASSERT_TRUE(actualOpt.has_value()) << "Optional field sfVaultID should be present";
+        expectEqualField(expected, *actualOpt, "sfVaultID");
+    }
+
     {
         auto const& expected = dataValue;
         auto const actualOpt = rebuiltTx.getData();
@@ -472,6 +491,8 @@ TEST(TransactionsLoanSetTests, OptionalFieldsReturnNullopt)
     auto tx = builder.build(publicKey, secretKey);
 
     // Verify optional fields are not present
+    EXPECT_FALSE(tx.hasVaultID());
+    EXPECT_FALSE(tx.getVaultID().has_value());
     EXPECT_FALSE(tx.hasData());
     EXPECT_FALSE(tx.getData().has_value());
     EXPECT_FALSE(tx.hasCounterparty());

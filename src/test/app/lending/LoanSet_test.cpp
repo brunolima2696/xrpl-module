@@ -3,12 +3,14 @@
 #include <test/jtx/Env.h>
 #include <test/jtx/TestHelpers.h>
 #include <test/jtx/amount.h>
+#include <test/jtx/credentials.h>
 #include <test/jtx/fee.h>
 #include <test/jtx/flags.h>
 #include <test/jtx/mpt.h>
 #include <test/jtx/multisign.h>
 #include <test/jtx/noop.h>
 #include <test/jtx/pay.h>
+#include <test/jtx/permissioned_domains.h>
 #include <test/jtx/trust.h>
 #include <test/jtx/vault.h>
 
@@ -29,9 +31,11 @@
 #include <xrpl/tx/transactors/lending/LoanSet.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -828,10 +832,297 @@ private:
         run(all_, tesSUCCESS);
     }
 
+    void
+    testPistisLending()
+    {
+        using namespace jtx;
+        using namespace loan;
+        Account const lender{"pistis-lender"};
+        Account const borrower{"pistis-borrower"};
+        Account const issuer{"pistis-issuer"};
+        Account const secondIssuer{"pistis-second-issuer"};
+        std::string const type = "PISTIS:CREDIT-ELIG:B:v1";
+
+        // 0 absent; 1 unaccepted; 2 expired; 3 revoked after signing;
+        // 4 wrong issuer; 5 wrong type; 6 depositor only; 7 valid;
+        // 8 multiple valid alternatives; 9 deleted domain;
+        // 10 missing VaultID; 11 wrong VaultID; 12 expired + valid alternative;
+        // 13 zero VaultID; 14 reuse in a second Vault.
+        for (bool const brokerSubmits : {false, true})
+        {
+            for (unsigned scenario = 0; scenario != 15; ++scenario)
+            {
+                testcase(
+                    "Pistis credentials " + std::to_string(scenario) +
+                    (brokerSubmits ? " broker submits" : " borrower submits"));
+                Env env(*this, all_ | featurePistisLending);
+                env.fund(XRP(10'000'000), lender, borrower, issuer, secondIssuer);
+                env.close();
+                pdomain::Credentials const accepted{{issuer, type}, {secondIssuer, type}};
+                env(pdomain::setTx(issuer.id(), accepted));
+                auto const domainID = pdomain::getNewDomain(env.meta());
+                env.close();
+                env(pdomain::setTx(issuer.id(), {{issuer, "PISTIS:DEPOSITOR:v1"}}));
+                auto const depositorDomainID = pdomain::getNewDomain(env.meta());
+                env.close();
+                BrokerParameters params;
+                params.vaultFlags = tfVaultPrivate;
+                params.depositorDomainID = depositorDomainID;
+                params.borrowerDomainID = domainID;
+                PrettyAsset const asset{xrpIssue(), 1'000'000};
+                auto const broker = createVaultAndBroker(env, asset, lender, params);
+                auto const vault = env.le(keylet::vault(broker.vaultID));
+                if (!BEAST_EXPECT(vault))
+                    continue;
+                BEAST_EXPECT(vault->at(sfBorrowerDomainID) == domainID);
+
+                if (scenario != 0)
+                {
+                    auto const& credentialIssuer = scenario == 4 ? lender : issuer;
+                    auto const credentialType = scenario == 5 ? "OTHER"
+                        : scenario == 6                       ? "PISTIS:DEPOSITOR:v1"
+                                                              : type;
+                    auto credential =
+                        credentials::create(borrower, credentialIssuer, credentialType);
+                    if (scenario == 2 || scenario == 12)
+                        credential[sfExpiration] = env.now().time_since_epoch().count() + 30;
+                    env(credential);
+                    if (scenario != 1)
+                        env(credentials::accept(borrower, credentialIssuer, credentialType));
+                    env.close();
+                    if (scenario == 2 || scenario == 12)
+                    {
+                        env.close(env.now() + std::chrono::seconds{60});
+                        env.close();
+                    }
+                }
+                if (scenario == 6)
+                {
+                    // This credential really authorizes deposits to the same Vault,
+                    // but must not authorize borrowing from it.
+                    env(Vault::deposit(
+                        {.depositor = borrower, .id = broker.vaultID, .amount = asset(100)}));
+                    env.close();
+                }
+                if (scenario == 8 || scenario == 12)
+                {
+                    env(credentials::create(borrower, secondIssuer, type));
+                    env(credentials::accept(borrower, secondIssuer, type));
+                    env.close();
+                }
+                if (scenario == 9)
+                {
+                    env(pdomain::deleteTx(issuer.id(), domainID));
+                    env.close();
+                }
+
+                TER const expected = scenario == 13 ? TER{temMALFORMED}
+                    : scenario == 2                 ? TER{tecEXPIRED}
+                    : scenario == 9                 ? TER{tecOBJECT_NOT_FOUND}
+                    : (scenario == 7 || scenario == 8 || scenario == 12 || scenario == 14)
+                    ? TER{tesSUCCESS}
+                    : TER{tecNO_PERMISSION};
+                auto tx =
+                    set(brokerSubmits ? lender : borrower, broker.brokerID, asset(100).value());
+                if (scenario != 10)
+                    tx[sfVaultID] = to_string(
+                        scenario == 13       ? uint256{}
+                            : scenario == 11 ? uint256{1}
+                                             : broker.vaultID);
+                if (brokerSubmits)
+                    tx[sfCounterparty] = borrower.human();
+                auto signedTx = env.jt(
+                    tx,
+                    Sig(sfCounterpartySignature, brokerSubmits ? borrower : lender),
+                    Fee(env.current()->fees().base * 5),
+                    Ter(expected));
+                if (scenario == 3)
+                {
+                    // The fully signed transaction must not retain old authorization.
+                    env(credentials::deleteCred(issuer, borrower, issuer, type));
+                    env.close();
+                }
+                auto const loanKey = keylet::loan(
+                    broker.brokerID,
+                    SeqProxy::rawSequence(env.le(broker.brokerKeylet())->at(sfLoanSequence)));
+                auto const beforeAvailable =
+                    env.le(keylet::vault(broker.vaultID))->at(sfAssetsAvailable);
+                env.submit(signedTx);
+                env.close();
+                auto const created = env.le(loanKey);
+                if (isTesSuccess(expected))
+                {
+                    if (!BEAST_EXPECT(created))
+                        continue;
+                    auto const pairs = env.le(keylet::permissionedDomain(domainID))
+                                           ->getFieldArray(sfAcceptedCredentials);
+                    auto const expectedIssuer = scenario == 12 ? secondIssuer.id()
+                        : scenario == 8                        ? pairs[0].getAccountID(sfIssuer)
+                                                               : issuer.id();
+                    BEAST_EXPECT(created->at(sfCredentialIssuer) == expectedIssuer);
+                    BEAST_EXPECT(
+                        created->getFieldVL(sfCredentialType) ==
+                        std::vector<std::uint8_t>(type.begin(), type.end()));
+
+                    auto update = Vault::set({.owner = lender, .id = broker.vaultID});
+                    update[sfBorrowerDomainID] = to_string(uint256{});
+                    env(update, Ter(tecHAS_OBLIGATIONS));
+
+                    if (scenario == 14)
+                    {
+                        auto const second = createVaultAndBroker(env, asset, lender, params);
+                        auto const secondLoan = keylet::loan(
+                            second.brokerID,
+                            SeqProxy::rawSequence(env.le(second.brokerKeylet())->at(sfLoanSequence)));
+                        auto secondTx = set(borrower, second.brokerID, asset(100).value());
+                        secondTx[sfVaultID] = to_string(second.vaultID);
+                        env(secondTx,
+                            Sig(sfCounterpartySignature, lender),
+                            Fee(env.current()->fees().base * 5));
+                        env.close();
+                        auto const secondCreated = env.le(secondLoan);
+                        if (BEAST_EXPECT(secondCreated))
+                            BEAST_EXPECT(secondCreated->at(sfCredentialIssuer) == issuer.id());
+                    }
+
+                    // Revocation is not an authorization requirement for repayment.
+                    env(credentials::deleteCred(issuer, borrower, issuer, type));
+                    env.close();
+                    env(loan::pay(borrower, loanKey.key, asset(100), tfLoanFullPayment));
+                    env.close();
+                    BEAST_EXPECT(env.le(loanKey)->at(sfCredentialIssuer) == expectedIssuer);
+                    auto const available = env.le(broker.vaultKeylet())->at(sfAssetsAvailable);
+                    env(Vault::withdraw(
+                        {.depositor = lender,
+                         .id = broker.vaultID,
+                         .amount = STAmount{asset.raw(), available}}));
+                    env.close();
+                    // Even with no shares, the paid Loan is still present.
+                    env(update, Ter(tecHAS_OBLIGATIONS));
+                    env(loan::del(borrower, loanKey.key));
+                    env.close();
+                    BEAST_EXPECT(!env.le(loanKey));
+                    env(update);
+                    env.close();
+                    BEAST_EXPECT(!env.le(broker.vaultKeylet())->isFieldPresent(sfBorrowerDomainID));
+                }
+                else
+                {
+                    BEAST_EXPECT(!created);
+                    BEAST_EXPECT(
+                        env.le(keylet::vault(broker.vaultID))->at(sfAssetsAvailable) ==
+                        beforeAvailable);
+                }
+            }
+        }
+    }
+
+    void
+    testPistisLegacyLoans()
+    {
+        using namespace jtx;
+        Account const lender{"pistis-legacy-lender"};
+        Account const borrower{"pistis-legacy-borrower"};
+        for (bool const enabled : {false, true})
+        {
+            testcase(enabled ? "Pistis legacy loans enabled" : "Pistis legacy loans disabled");
+            auto features = all_;
+            if (!enabled)
+                features = features - featurePistisLending;
+            Env env(*this, features);
+            env.fund(XRP(10'000'000), lender, borrower);
+            env.close();
+            PrettyAsset const asset{xrpIssue(), 1'000'000};
+            auto const broker = createVaultAndBroker(env, asset, lender);
+            auto submit = [&](bool withVaultID, TER expected) {
+                auto const sequence = env.le(broker.brokerKeylet())->at(sfLoanSequence);
+                auto tx = loan::set(borrower, broker.brokerID, asset(100).value());
+                if (withVaultID)
+                    tx[sfVaultID] = to_string(broker.vaultID);
+                env(tx,
+                    Sig(sfCounterpartySignature, lender),
+                    Fee(env.current()->fees().base * 5),
+                    Ter(expected));
+                env.close();
+                if (isTesSuccess(expected))
+                {
+                    auto const loan =
+                        env.le(keylet::loan(broker.brokerID, SeqProxy::rawSequence(sequence)));
+                    if (BEAST_EXPECT(loan))
+                    {
+                        BEAST_EXPECT(!loan->isFieldPresent(sfCredentialIssuer));
+                        BEAST_EXPECT(!loan->isFieldPresent(sfCredentialType));
+                    }
+                }
+            };
+            submit(false, tesSUCCESS);
+            submit(true, enabled ? TER{tesSUCCESS} : TER{temDISABLED});
+        }
+    }
+
+    void
+    testPistisVaultConfiguration()
+    {
+        using namespace jtx;
+        Account const owner{"pistis-owner"};
+        Account const issuer{"pistis-issuer"};
+        for (bool const enabled : {false, true})
+        {
+            testcase(enabled ? "Pistis vault enabled" : "Pistis vault disabled");
+            auto features = all_;
+            if (!enabled)
+                features = features - featurePistisLending;
+            Env env(*this, features);
+            env.fund(XRP(10'000'000), owner, issuer);
+            env.close();
+            env(pdomain::setTx(issuer.id(), {{issuer, "PISTIS:CREDIT-ELIG:B:v1"}}));
+            auto const domainID = pdomain::getNewDomain(env.meta());
+            env.close();
+            Vault const vault{env};
+            auto [tx, vaultKey] = vault.create({.owner = owner, .asset = xrpIssue()});
+            tx[sfBorrowerDomainID] = to_string(uint256{});
+            env(tx, Ter(enabled ? TER{temMALFORMED} : TER{temDISABLED}));
+            tx[sfBorrowerDomainID] = to_string(uint256{1});
+            env(tx, Ter(enabled ? TER{tecOBJECT_NOT_FOUND} : TER{temDISABLED}));
+            // Failed tec transactions consume Sequence: rebuild the expected keylet.
+            std::tie(tx, vaultKey) = vault.create({.owner = owner, .asset = xrpIssue()});
+            tx[sfBorrowerDomainID] = to_string(domainID);
+            if (!enabled)
+            {
+                env(tx, Ter(temDISABLED));
+                tx.removeMember(sfBorrowerDomainID.jsonName);
+            }
+            env(tx);
+            env.close();
+            auto update = Vault::set({.owner = owner, .id = vaultKey.key});
+            update[sfBorrowerDomainID] = to_string(domainID);
+            env(update, Ter(enabled ? TER{tesSUCCESS} : TER{temDISABLED}));
+            if (!enabled)
+                continue;
+            update[sfBorrowerDomainID] = to_string(uint256{});
+            env(update);
+            env.close();
+            BEAST_EXPECT(!env.le(vaultKey)->isFieldPresent(sfBorrowerDomainID));
+            update[sfBorrowerDomainID] = to_string(domainID);
+            env(update);
+            env.close();
+            env(vault.deposit({.depositor = owner, .id = vaultKey.key, .amount = XRP(100)}));
+            env.close();
+            // Same reference is a no-op; removal and replacement are changes.
+            env(update);
+            update[sfBorrowerDomainID] = to_string(uint256{});
+            env(update, Ter(tecHAS_OBLIGATIONS));
+            env.close();
+        }
+    }
+
 public:
     void
     run() override
     {
+        testPistisVaultConfiguration();
+        testPistisLending();
+        testPistisLegacyLoans();
         for (auto const& features : jtx::amendmentCombinations(
                  {fixCleanup3_1_3, fixCleanup3_2_0, featureMPTokensV2}, all_))
             testLoanSet(features);

@@ -1,72 +1,51 @@
-[![codecov](https://codecov.io/gh/XRPLF/rippled/graph/badge.svg?token=WyFr5ajq3O)](https://codecov.io/gh/XRPLF/rippled)
+# Pistis — extensões do XRP Ledger
 
-# The XRP Ledger
+Fork do `rippled` que implementa o suporte do protocolo ao framework Pistis,
+com políticas independentes para Depositantes e Tomadores.
 
-The [XRP Ledger](https://xrpl.org/) is a decentralized cryptographic ledger powered by a network of peer-to-peer nodes. The XRP Ledger uses a novel Byzantine Fault Tolerant consensus algorithm to settle and record transactions in a secure distributed database without a central operator.
+## Amendment local
 
-## XRP
+As extensões são controladas pelo amendment `PistisLending`, suportado pelo
+fork e desabilitado por padrão (`DefaultNo`). Não corresponde a uma alteração
+aprovada nas redes públicas do XRP Ledger.
 
-[XRP](https://xrpl.org/xrp.html) is a public, counterparty-free crypto-asset native to the XRP Ledger, and is designed as a gas token for network services and to bridge different currencies. XRP is traded on the open-market and is available for anyone to access. The XRP Ledger was created in 2012 with a finite supply of 100 billion units of XRP.
+## Extensões do protocolo
 
-## xrpld
+| Transação ou objeto | Alteração |
+| --- | --- |
+| `VaultCreate`, `VaultSet` e `Vault` | Campo opcional `BorrowerDomainID` para a política do Tomador. |
+| `LoanSet` | Campo `VaultID`, obrigatório quando o Vault possui política do Tomador. |
+| `Loan` | Registro imutável de `CredentialIssuer` e `CredentialType` utilizados na autorização. |
 
-The server software that powers the XRP Ledger is called `xrpld` and is available in this repository under the permissive [ISC open-source license](LICENSE.md). The `xrpld` server software is written primarily in C++ and runs on a variety of platforms. The `xrpld` server software can run in several modes depending on its [configuration](https://xrpl.org/rippled-server-modes.html).
+A política do Depositante mantém o `DomainID` nativo, armazenado na emissão
+de cotas do Vault. O comportamento de `VaultDeposit` permanece inalterado.
 
-If you are interested in running an **API Server** (including a **Full History Server**), take a look at [Clio](https://github.com/XRPLF/clio). (xrpld Reporting Mode has been replaced by Clio.)
+### Regras de autorização
 
-### Build from Source
+- `VaultCreate` exige que o domínio do Tomador informado exista e seja não nulo.
+- `VaultSet` permite incluir, substituir ou remover `BorrowerDomainID` somente
+  sem cotas em circulação e sem objetos `Loan` nos Loan Brokers vinculados.
+  Empréstimos quitados ainda contam até a exclusão do objeto. O conteúdo dos
+  domínios continua administrável por seus proprietários.
+- `LoanSet` verifica a correspondência entre o `VaultID` informado e o Vault do
+  Loan Broker. O Tomador é a contraparte da conta proprietária do Loan Broker.
+- A autorização ocorre no ledger: basta uma Credential aceita e não expirada
+  cujo par emissor/tipo pertença ao Permissioned Domain do Tomador. O primeiro
+  par válido na ordem armazenada é registrado no Loan.
+- Sem `BorrowerDomainID`, a originação preserva o comportamento nativo.
+  `LoanPay` e `LoanDelete` não revalidam credenciais; a revogação não extingue
+  empréstimos existentes. Não há consulta a VCs, VPs, DIDs ou serviços externos.
 
-- [Read the build instructions in `BUILD.md`](BUILD.md)
-- If you encounter any issues, please [open an issue](https://github.com/XRPLF/rippled/issues)
+## Adaptações do projeto
 
-## Key Features of the XRP Ledger
+- Formatos de transações e objetos, campos serializados, modelos C++ gerados
+  e invariantes atualizados para as extensões.
+- Testes adicionados para autorização, rejeição, compatibilidade, revogação,
+  registro da credencial e restrições de alteração da política.
+- Docker independente do repositório do TCC e workflow manual de build/testes,
+  com cache e publicação opcional da imagem no GHCR. O Compose consome a imagem
+  pronta; o build local permanece opcional.
+- Contas, seeds e estado local excluídos do contexto Docker e ignorados pelo Git.
 
-- **[Censorship-Resistant Transaction Processing][]:** No single party decides which transactions succeed or fail, and no one can "roll back" a transaction after it completes. As long as those who choose to participate in the network keep it healthy, they can settle transactions in seconds.
-- **[Fast, Efficient Consensus Algorithm][]:** The XRP Ledger's consensus algorithm settles transactions in 4 to 5 seconds, processing at a throughput of up to 1500 transactions per second. These properties put XRP at least an order of magnitude ahead of other top digital assets.
-- **[Finite XRP Supply][]:** When the XRP Ledger began, 100 billion XRP were created, and no more XRP will ever be created. The available supply of XRP decreases slowly over time as small amounts are destroyed to pay transaction fees.
-- **[Responsible Software Governance][]:** A team of full-time developers at Ripple & other organizations maintain and continually improve the XRP Ledger's underlying software with contributions from the open-source community. Ripple acts as a steward for the technology and an advocate for its interests.
-- **[Secure, Adaptable Cryptography][]:** The XRP Ledger relies on industry standard digital signature systems like ECDSA (the same scheme used by Bitcoin) but also supports modern, efficient algorithms like Ed25519. The extensible nature of the XRP Ledger's software makes it possible to add and disable algorithms as the state of the art in cryptography advances.
-- **[Modern Features][]:** Features like Escrow, Checks, and Payment Channels support financial applications atop of the XRP Ledger. This toolbox of advanced features comes with safety features like a process for amending the network and separate checks against invariant constraints.
-- **[On-Ledger Decentralized Exchange][]:** In addition to all the features that make XRP useful on its own, the XRP Ledger also has a fully-functional accounting system for tracking and trading obligations denominated in any way users want, and an exchange built into the protocol. The XRP Ledger can settle long, cross-currency payment paths and exchanges of multiple currencies in atomic transactions, bridging gaps of trust with XRP.
-
-[Censorship-Resistant Transaction Processing]: https://xrpl.org/transaction-censorship-detection.html#transaction-censorship-detection
-[Fast, Efficient Consensus Algorithm]: https://xrpl.org/consensus-research.html#consensus-research
-[Finite XRP Supply]: https://xrpl.org/what-is-xrp.html
-[Responsible Software Governance]: https://xrpl.org/contribute-code.html#contribute-code-to-the-xrp-ledger
-[Secure, Adaptable Cryptography]: https://xrpl.org/cryptographic-keys.html#cryptographic-keys
-[Modern Features]: https://xrpl.org/use-specialized-payment-types.html
-[On-Ledger Decentralized Exchange]: https://xrpl.org/decentralized-exchange.html#decentralized-exchange
-
-## Source Code
-
-Here are some good places to start learning the source code:
-
-- Read the markdown files in the source tree: `src/xrpld/**/*.md`.
-- Read [the levelization document](.github/scripts/levelization) to get an idea of the internal dependency graph.
-- In the big picture, the `main` function constructs an `ApplicationImp` object, which implements the `Application` virtual interface. Almost every component in the application takes an `Application&` parameter in its constructor, typically named `app` and stored as a member variable `app_`. This allows most components to depend on any other component.
-
-### Repository Contents
-
-| Folder     | Contents                                       |
-| :--------- | :--------------------------------------------- |
-| `./bin`    | Scripts and data files for XRPL developers.    |
-| `./Builds` | Platform-specific guides for building `xrpld`. |
-| `./docs`   | Source documentation files and doxygen config. |
-| `./cfg`    | Example configuration files.                   |
-| `./src`    | Source code.                                   |
-| `./crates` | Rust source code.                              |
-
-Some of the directories under `src` are external repositories included using
-git-subtree. See those directories' README files for more details.
-
-## Additional Documentation
-
-- [XRP Ledger Dev Portal](https://xrpl.org/)
-- [Setup and Installation](https://xrpl.org/install-rippled.html)
-- [Source Documentation (Doxygen)](https://xrplf.github.io/rippled/)
-
-## See Also
-
-- [Clio API Server for the XRP Ledger](https://github.com/XRPLF/clio)
-- [Mailing List for Release Announcements](https://groups.google.com/g/ripple-server)
-- [Learn more about the XRP Ledger (YouTube)](https://www.youtube.com/playlist?list=PLJQ55Tj1hIVZtJ_JdTvSum2qMTsedWkNi)
+A compilação completa e a validação dos testes do protocolo permanecem pendentes.
+Os clientes Python ainda precisam de suporte aos novos campos.
