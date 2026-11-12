@@ -988,7 +988,8 @@ private:
                     // Revocation is not an authorization requirement for repayment.
                     env(credentials::deleteCred(issuer, borrower, issuer, type));
                     env.close();
-                    env(loan::pay(borrower, loanKey.key, asset(100), tfLoanFullPayment));
+                    // The only scheduled installment requires a regular payment.
+                    env(loan::pay(borrower, loanKey.key, asset(100)));
                     env.close();
                     BEAST_EXPECT(env.le(loanKey)->at(sfCredentialIssuer) == expectedIssuer);
                     auto const available = env.le(broker.vaultKeylet())->at(sfAssetsAvailable);
