@@ -1,14 +1,18 @@
 name: xrpl-local
 
+# Validated Release build: 7fba8940eee73da5039351c23486641953948dd9
+x-xrpld-image: &xrpld-image ghcr.io/brunolima2696/xrpld@sha256:687a7c9fc389673fa996790d246c6aea5a314cbb4a390c13f96c54e44214ec3e
+
 services:
   xrpld:
-    image: ${XRPLD_IMAGE:-ghcr.io/brunolima2696/xrpld:pistis}
+    image: *xrpld-image
     container_name: xrpld-local
     ports:
       - "127.0.0.1:5005:5005"
     volumes:
       - xrpld-data:/var/lib/xrpld
       - xrpld-logs:/var/log/xrpld
+      - ./xrpld.cfg:/etc/xrpld/xrpld.cfg:ro
     healthcheck:
       test:
         - CMD
@@ -22,12 +26,14 @@ services:
     restart: unless-stopped
 
   ledger-closer:
-    image: ${XRPLD_IMAGE:-ghcr.io/brunolima2696/xrpld:pistis}
+    image: *xrpld-image
     container_name: xrpld-ledger-closer
     depends_on:
       xrpld:
         condition: service_healthy
     network_mode: "service:xrpld"
+    volumes:
+      - ./xrpld.cfg:/etc/xrpld/xrpld.cfg:ro
     entrypoint:
       - /bin/bash
       - -lc

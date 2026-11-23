@@ -1065,6 +1065,9 @@ private:
     testPistisVaultConfiguration()
     {
         using namespace jtx;
+        testcase("Pistis default vote");
+        BEAST_EXPECT(
+            xrpl::detail::supportedAmendments().at("PistisLending") == VoteBehavior::DefaultYes);
         Account const owner{"pistis-owner"};
         Account const issuer{"pistis-issuer"};
         for (bool const enabled : {false, true})

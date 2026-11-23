@@ -70,19 +70,19 @@ o Docker com uma credencial autorizada a ler o pacote.
 Na raiz deste fork:
 
 ```bash
-export XRPLD_IMAGE=ghcr.io/brunolima2696/xrpld:pistis
-docker compose -f docker/compose.yaml pull
 docker compose -f docker/compose.yaml up -d --no-build
 ```
 
-Substitua `XRPLD_IMAGE` pela referência por digest ou por commit exibida no
-Actions. Esses comandos pressupõem que a imagem já foi publicada.
+O Compose fixa o digest da imagem validada no commit
+`7fba8940eee73da5039351c23486641953948dd9` e baixa a imagem se necessário.
+Para atualizar a versão, altere `x-xrpld-image` no Compose.
 
 O Compose é independente de compilação. Mantém as portas, nomes dos
 containers e volumes anteriores; não apague volumes para atualizar a imagem.
-O workflow não executa o Compose nem reinicia nós. A configuração do
-amendment local continua sendo uma decisão separada; veja
-[PistisLending](../README.md).
+O workflow não executa o Compose nem reinicia nós. O arquivo `xrpld.cfg` é
+montado em modo somente leitura nos dois serviços e habilita `PistisLending`
+e suas dependências no ambiente standalone. Isso não requer uma nova imagem.
+Essa configuração não deve ser utilizada em redes públicas.
 
 O repositório do TCC pode consumir essa mesma imagem e manter seu próprio
 Compose/configuração, sem carregar o código-fonte deste fork. Este ajuste

@@ -6,8 +6,9 @@ com políticas independentes para Depositantes e Tomadores.
 ## Amendment local
 
 As extensões são controladas pelo amendment `PistisLending`, suportado pelo
-fork e desabilitado por padrão (`DefaultNo`). Não corresponde a uma alteração
-aprovada nas redes públicas do XRP Ledger.
+fork com voto favorável por padrão (`DefaultYes`). Na PoC, a seção `[features]`
+do `docker/xrpld.cfg` controla a habilitação local forçada. Alterar essa seção
+não desativa amendments já ativados no ledger. 
 
 ## Extensões do protocolo
 
@@ -43,7 +44,9 @@ de cotas do Vault. O comportamento de `VaultDeposit` permanece inalterado.
 - Testes adicionados para autorização, rejeição, compatibilidade, revogação,
   registro da credencial e restrições de alteração da política.
 - Docker independente do repositório do TCC e workflow manual de build/testes,
-  com cache e publicação opcional da imagem no GHCR. O Compose consome a imagem
-  pronta; o build local permanece opcional.
+  com cache e publicação da imagem no GHCR quando habilitada. A imagem gerada
+  pelo GitHub Actions fica disponível para download; o Compose em `docker/`
+  aponta para a versão validada, fixada por digest, sem exigir compilação local.
+  Os Dockerfiles permanecem disponíveis para gerar novas imagens.
 - Contas, seeds e estado local excluídos do contexto Docker e ignorados pelo Git.
 
